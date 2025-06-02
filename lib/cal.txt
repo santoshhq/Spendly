@@ -1,0 +1,80 @@
+// 📅 CalendarWidget with Day Colors & Tap Interaction
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+class CalendarWidget extends StatelessWidget {
+  final int year;
+  final int month;
+  final int? highestSpendingDay;
+  final List<int> daysWithExpenses;
+  final Map<int, String> expenseDetailsByDay;
+  final Function(int)? onDayTap;
+
+  const CalendarWidget({
+    super.key,
+    required this.year,
+    required this.month,
+    required this.highestSpendingDay,
+    required this.daysWithExpenses,
+    required this.expenseDetailsByDay,
+    this.onDayTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final DateTime now = DateTime.now();
+    final DateTime firstDayOfMonth = DateTime(year, month, 1);
+    final int daysInMonth = DateTime(year, month + 1, 0).day;
+    final int weekdayOffset = firstDayOfMonth.weekday % 7;
+
+    List<Widget> dayWidgets = [
+      ...['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(
+        (day) => Center(
+          child: Text(day, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ),
+      ),
+    ];
+
+    for (int i = 0; i < weekdayOffset; i++) {
+      dayWidgets.add(const SizedBox.shrink());
+    }
+
+    for (int day = 1; day <= daysInMonth; day++) {
+      Color bgColor = Colors.grey.withOpacity(0.1);
+      if (highestSpendingDay == day) {
+        bgColor = Colors.red;
+      } else if (DateTime.now().day == day &&
+          now.month == month &&
+          now.year == year) {
+        bgColor = Colors.deepPurple;
+      } else if (daysWithExpenses.contains(day)) {
+        bgColor = Colors.purple.shade100;
+      }
+
+      dayWidgets.add(
+        GestureDetector(
+          onTap: () => onDayTap?.call(day),
+          child: Container(
+            margin: const EdgeInsets.all(4),
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [Text('$day')],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return GridView.count(
+      crossAxisCount: 7,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      children: dayWidgets,
+    );
+  }
+}

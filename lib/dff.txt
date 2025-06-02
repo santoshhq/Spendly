@@ -1,0 +1,325 @@
+// ✅ Final Updated: accountpage.dart with Firestore Summary Save + CalendarWidget Integration
+import 'dart:io';
+import 'package:csv/csv.dart';
+import 'package:expense_tracker/calender_widget.dart';
+import 'package:expense_tracker/monthpickerdialog.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:expense_tracker/models/model_expense.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+
+class AccountPage extends StatefulWidget {
+  const AccountPage({super.key});
+
+  @override
+  State<AccountPage> createState() => _AccountPageState();
+}
+
+class _AccountPageState extends State<AccountPage> {
+  String _username = '';
+  String _email = '';
+  String? _photoUrl;
+  List<Modelexpense> _allExpenses = [];
+  List<int> _daysWithExpenses = [];
+  int? _highestSpendingDay;
+  Map<int, String> _expenseDetailsByDay = {};
+  double _monthlyTotal = 0;
+  String _highestCategory = 'N/A';
+  String _highestDay = 'N/A';
+  List<Map<String, dynamic>> _previousMonths = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    await user.reload();
+    final uid = user.uid;
+    final email = user.email ?? '';
+    final name = user.displayName ?? 'No Name';
+    final photoUrl = user.photoURL;
+
+    final snapshot =
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('expenses')
+            .get();
+
+    List<Modelexpense> expenses =
+        snapshot.docs.map((doc) {
+          final data = doc.data();
+          return Modelexpense(
+            id: doc.id,
+            title: data['title'],
+            amount: (data['amount'] as num).toDouble(),
+            date:
+                data['date'] is Timestamp
+                    ? (data['date'] as Timestamp).toDate()
+                    : data['date'] != null
+                    ? DateTime.tryParse(data['date']) ?? DateTime.now()
+                    : DateTime.now(),
+
+            category: Category.values.firstWhere(
+              (e) => e.name == data['category'],
+              orElse: () => Category.food,
+            ),
+          );
+        }).toList();
+
+    final now = DateTime.now();
+    final thisMonthExpenses =
+        expenses
+            .where((e) => e.date.month == now.month && e.date.year == now.year)
+            .toList();
+
+    _allExpenses = thisMonthExpenses;
+
+    final total = thisMonthExpenses.fold(0.0, (sum, e) => sum + e.amount);
+    final categoryTotals = <String, double>{};
+    final dailyTotals = <int, double>{};
+    final dailyCategories = <int, String>{};
+
+    for (var e in thisMonthExpenses) {
+      final day = e.date.day;
+      dailyTotals[day] = (dailyTotals[day] ?? 0) + e.amount;
+      categoryTotals[e.category.name] =
+          (categoryTotals[e.category.name] ?? 0) + e.amount;
+      dailyCategories[day] = e.category.name;
+    }
+
+    _daysWithExpenses = dailyTotals.keys.toList();
+    _expenseDetailsByDay = {
+      for (var day in dailyTotals.keys)
+        day:
+            '₹${dailyTotals[day]!.toStringAsFixed(2)} | ${dailyCategories[day]!.toUpperCase()}',
+    };
+
+    int? maxDay;
+    double maxDayAmt = 0;
+    dailyTotals.forEach((day, amt) {
+      if (amt > maxDayAmt) {
+        maxDayAmt = amt;
+        maxDay = day;
+      }
+    });
+    _highestSpendingDay = maxDay;
+
+    final topCategory =
+        categoryTotals.entries
+            .reduce((a, b) => a.value > b.value ? a : b)
+            .key
+            .toUpperCase();
+
+    setState(() {
+      _username = name;
+      _email = email;
+      _photoUrl = photoUrl;
+      _monthlyTotal = total;
+      _highestCategory = topCategory;
+      _highestDay =
+          maxDay != null
+              ? '${maxDay} ${DateFormat('MMMM').format(now)}'
+              : 'N/A';
+    });
+
+    // 🔥 Save Monthly Summary to Firestore (if not already saved)
+    final summaryRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('summaries')
+        .doc(DateFormat('MMMM yyyy').format(now));
+    final existingSummary = await summaryRef.get();
+    if (!existingSummary.exists) {
+      await summaryRef.set({
+        'totalExpense': total,
+        'highestCategory': topCategory,
+        'topDay': _highestDay,
+        'timestamp': DateTime.now(),
+      });
+    }
+
+    // 📦 Load All Previous Month Summaries
+    final monthSnaps =
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('summaries')
+            .orderBy('timestamp', descending: true)
+            .get();
+
+    final List<Map<String, dynamic>> monthsData =
+        monthSnaps.docs.map((doc) {
+          final d = doc.data();
+          return {
+            'month': doc.id,
+            'expense': d['totalExpense'] ?? 0.0,
+            'category': d['highestCategory'] ?? 'N/A',
+            'day': d['topDay'] ?? '-',
+          };
+        }).toList();
+
+    setState(() {
+      _previousMonths = monthsData;
+    });
+  }
+
+  void _showDownloadDialog() {
+    showDialog(
+      context: context,
+      builder:
+          (ctx) => MonthPickerDialog(
+            previousMonths: _previousMonths,
+            onMonthSelected: (month) {
+              _downloadCSVForMonth(month);
+            },
+          ),
+    );
+  }
+
+  Future<void> _downloadCSVForMonth(String monthYear) async {
+    final filtered =
+        _allExpenses.where((e) {
+          return DateFormat('MMMM yyyy').format(e.date) == monthYear;
+        }).toList();
+
+    final dailyGroups = <int, List<Modelexpense>>{};
+    for (var e in filtered) {
+      dailyGroups.putIfAbsent(e.date.day, () => []).add(e);
+    }
+
+    final List<List<String>> rows = [
+      ['Day', 'Total', 'Top Category', 'Expenses'],
+    ];
+
+    for (var day in dailyGroups.keys) {
+      final items = dailyGroups[day]!;
+      final total = items.fold(0.0, (s, e) => s + e.amount);
+      final categories = <String, double>{};
+      for (var e in items) {
+        categories[e.category.name] =
+            (categories[e.category.name] ?? 0) + e.amount;
+      }
+      final topCat =
+          categories.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+      final titleList = items.map((e) => e.title).join(', ');
+      rows.add(['$day', '₹${total.toStringAsFixed(2)}', topCat, titleList]);
+    }
+
+    rows.add([
+      'TOTAL',
+      '₹${filtered.fold(0.0, (s, e) => s + e.amount).toStringAsFixed(2)}',
+      '',
+      '',
+    ]);
+
+    final csv = const ListToCsvConverter().convert(rows);
+    final dir = await getApplicationDocumentsDirectory();
+    final file = File('${dir.path}/$monthYear.csv');
+    await file.writeAsString(csv);
+    Share.shareXFiles([
+      XFile(file.path),
+    ], text: 'Monthly Expense Report: $monthYear');
+  }
+
+  // ... download + dialog methods stay the same ...
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Account Page"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.download),
+            onPressed: _showDownloadDialog,
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: 40,
+                backgroundImage:
+                    _photoUrl != null
+                        ? NetworkImage(_photoUrl!)
+                        : const AssetImage('assets/images/user.jpg')
+                            as ImageProvider,
+              ),
+              const SizedBox(height: 8),
+              Text(_username, style: const TextStyle(fontSize: 20)),
+              Text(_email),
+              const SizedBox(height: 16),
+              Text('Month: ${DateFormat('MMMM yyyy').format(DateTime.now())}'),
+              Text('Total Expense: ₹${_monthlyTotal.toStringAsFixed(2)}'),
+              Text('Highest Category: $_highestCategory'),
+              Text('Highest Day: $_highestDay'),
+              const Divider(),
+              CalendarWidget(
+                year: DateTime.now().year,
+                month: DateTime.now().month,
+                highestSpendingDay: _highestSpendingDay,
+                daysWithExpenses: _daysWithExpenses,
+                expenseDetailsByDay: _expenseDetailsByDay,
+                onDayTap: (day) {
+                  final info = _expenseDetailsByDay[day] ?? 'No data';
+                  showDialog(
+                    context: context,
+                    builder:
+                        (_) => AlertDialog(
+                          title: Text(
+                            'Details - $day ${DateFormat('MMMM').format(DateTime.now())}',
+                          ),
+                          content: Text(info),
+                        ),
+                  );
+                },
+              ),
+              const Divider(),
+              const Text('Previous Months:'),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _previousMonths.length,
+                itemBuilder: (ctx, idx) {
+                  final m = _previousMonths[idx];
+                  return ListTile(
+                    title: Text(m['month']),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Total: ₹${m['expense'].toStringAsFixed(2)}'),
+                        Text('Category: ${m['category']}'),
+                        Text('Top Day: ${m['day']}'),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+
+date:
+                data['date'] is Timestamp
+                    ? (data['date'] as Timestamp).toDate()
+                    : data['date'] != null
+                    ? DateTime.tryParse(data['date']) ?? DateTime.now()
+                    : DateTime.now(),
