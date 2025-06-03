@@ -27,7 +27,7 @@ class PreviousMonthsPage extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          height: 130, // Fixed height for horizontal cards
+          height: 140,
           padding: const EdgeInsets.only(left: 16),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -37,56 +37,99 @@ class PreviousMonthsPage extends StatelessWidget {
                     return Container(
                       width: 220,
                       margin: const EdgeInsets.only(right: 12),
-                      child: Card(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 2,
-                        child: Padding(
-                          padding: const EdgeInsets.all(12.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                item['month'],
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w600,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () {
+                          // Optional: expand info or navigate
+                        },
+                        child: Card(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          elevation: 3,
+                          color: const Color(
+                            0xFFF9F9FB,
+                          ), // Light neutral card color
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item['month'],
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 16,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text("Top Day: ${item['day']}"),
-                              Row(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 12,
-                                    backgroundColor: _getCategoryColor(
-                                      item['category'],
-                                    ),
-                                    child: Icon(
-                                      _getCategoryIcon(item['category']),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.calendar_today,
                                       size: 14,
-                                      color: Colors.white,
+                                      color: Colors.grey[600],
                                     ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    item['category'],
-                                    style: theme.textTheme.bodyMedium,
-                                  ),
-                                ],
-                              ),
-
-                              const SizedBox(height: 6),
-                              Text(
-                                "Total:₹${item['expense'].toStringAsFixed(0)}",
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF673AB7),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      "Top Day: ${item['day']}",
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: Colors.grey[800],
+                                            fontSize: 13,
+                                          ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 11,
+                                      backgroundColor: _getCategoryColor(
+                                        item['category'],
+                                      ),
+                                      child: Icon(
+                                        _getCategoryIcon(item['category']),
+                                        size: 14,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      item['category'],
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w500,
+                                            fontSize: 13.5,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.account_balance_wallet,
+                                      size: 16,
+                                      color: Color(0xFF673AB7),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      "₹${item['expense'].toStringAsFixed(0)}",
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF673AB7),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -227,6 +270,7 @@ class _AccountPageState extends State<AccountPage> {
             'category': category,
           };
         }).toList();
+    if (!mounted) return;
 
     setState(() {
       _monthlyTotal = total;
@@ -479,7 +523,8 @@ class _AccountPageState extends State<AccountPage> {
                           onPressed: () => Navigator.pop(context),
                           style: TextButton.styleFrom(
                             foregroundColor: Colors.white,
-                            backgroundColor: Color(0xFFBA68C8), // Purple button
+                            backgroundColor:
+                                Colors.deepPurple.shade900, // Purple button
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -505,9 +550,7 @@ class _AccountPageState extends State<AccountPage> {
                 builder: (BuildContext context) {
                   return AlertDialog(
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(
-                        12,
-                      ), // Rounded corners
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     backgroundColor: const Color(0xFFF3E5F5), // Light purple
                     title: const Text(
@@ -519,75 +562,67 @@ class _AccountPageState extends State<AccountPage> {
                     ),
                     content: SizedBox(
                       width: double.maxFinite,
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: _previousMonths.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (_, i) {
-                          final month = _previousMonths[i]['month'];
-                          return Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(8),
-                              onTap: () async {
-                                Navigator.pop(context);
-                                await _downloadReportPDF(month);
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(
-                                    0xFFE1BEE7,
-                                  ), // Light purple tile
-                                  borderRadius: BorderRadius.circular(8),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.05),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      month,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500,
-                                        color: Colors.black87,
+                      height:
+                          300, // <-- Fixed height to accommodate 4 months with scroll
+                      child: Scrollbar(
+                        child: ListView.separated(
+                          padding: EdgeInsets.zero,
+                          itemCount: _previousMonths.length,
+                          separatorBuilder:
+                              (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (_, i) {
+                            final month = _previousMonths[i]['month'];
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: () async {
+                                  Navigator.pop(context);
+                                  await _downloadReportPDF(month);
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 14,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(
+                                      0xFFE1BEE7,
+                                    ), // Light purple tile
+                                    borderRadius: BorderRadius.circular(8),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.05),
+                                        blurRadius: 4,
+                                        offset: const Offset(0, 2),
                                       ),
-                                    ),
-                                    const Icon(
-                                      Icons.chevron_right,
-                                      color: Colors.black54,
-                                    ),
-                                  ],
+                                    ],
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        month,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                      const Icon(
+                                        Icons.chevron_right,
+                                        color: Colors.black54,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
                     ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          backgroundColor: Color(0xFFAB47BC),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: const Text("Cancel"),
-                      ),
-                    ],
                   );
                 },
               );
@@ -677,12 +712,22 @@ class _AccountPageState extends State<AccountPage> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        "₹${_monthlyTotal.toStringAsFixed(0)}",
-                        style: theme.textTheme.displaySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 32,
-                        ),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.account_balance_wallet,
+                            size: 26,
+                            color: Color(0xFF673AB7),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            "₹${_monthlyTotal.toStringAsFixed(0)}",
+                            style: theme.textTheme.displaySmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 32,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
                       Text(
