@@ -1,7 +1,8 @@
 import 'dart:io';
 import 'package:csv/csv.dart';
-//import 'package:pdf/pdf.dart';
-//import 'package:printing/printing.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:expense_tracker/models/model_expense.dart';
 import 'package:expense_tracker/services/firestore_service.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
 // Separate page for Previous Months
 class PreviousMonthsPage extends StatelessWidget {
@@ -242,26 +244,119 @@ class _AccountPageState extends State<AccountPage> {
     });
   }
 
-  Future<void> _downloadReportCSV() async {
-    final rows = [
-      ['Title', 'Amount', 'Category', 'Date'],
-      ..._allExpenses.map(
-        (e) => [
-          e.title,
-          e.amount.toStringAsFixed(2),
-          e.category.name,
-          DateFormat('yyyy-MM-dd').format(e.date),
-        ],
+  Future<void> _downloadReportPDF(String monthYear) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final fontData = await rootBundle.load("assets/Roboto-Regular.ttf");
+    final ttf = pw.Font.ttf(fontData);
+
+    if (user == null) return;
+
+    final uid = user.uid;
+    final snapshot =
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('expenses')
+            .get();
+
+    final targetDate = DateFormat('MMMM yyyy').parse(monthYear);
+    final expenses =
+        snapshot.docs
+            .map((doc) {
+              final data = doc.data();
+              return Modelexpense(
+                id: doc.id,
+                title: data['title'] ?? '',
+                amount: (data['amount'] as num).toDouble(),
+                date:
+                    data['date'] is Timestamp
+                        ? (data['date'] as Timestamp).toDate()
+                        : DateTime.tryParse(data['date']) ?? DateTime.now(),
+                category: Category.values.firstWhere(
+                  (e) => e.name == data['category'],
+                  orElse: () => Category.food,
+                ),
+              );
+            })
+            .where(
+              (e) =>
+                  e.date.month == targetDate.month &&
+                  e.date.year == targetDate.year,
+            )
+            .toList();
+
+    if (expenses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No data found for selected month.")),
+      );
+      return;
+    }
+
+    final pdf = pw.Document();
+
+    final dailyExpenses = <int, List<Modelexpense>>{};
+    final dailyTotals = <int, double>{};
+    final categoryTotals = <String, double>{};
+
+    for (var e in expenses) {
+      final d = e.date.day;
+      dailyExpenses.putIfAbsent(d, () => []).add(e);
+      dailyTotals[d] = (dailyTotals[d] ?? 0) + e.amount;
+      categoryTotals[e.category.name] =
+          (categoryTotals[e.category.name] ?? 0) + e.amount;
+    }
+
+    final total = expenses.fold(0.0, (sum, e) => sum + e.amount);
+    final highestDay =
+        dailyTotals.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+    final topCategory =
+        categoryTotals.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+
+    pdf.addPage(
+      pw.MultiPage(
+        theme: pw.ThemeData.withFont(base: ttf),
+        build:
+            (context) => [
+              pw.Header(
+                level: 0,
+                child: pw.Text(
+                  "Expense Report - $monthYear",
+                  style: pw.TextStyle(fontSize: 20),
+                ),
+              ),
+              pw.Text("Total Spending: ₹${total.toStringAsFixed(2)}"),
+              pw.Text("Top Category: ${topCategory.toUpperCase()}"),
+              pw.Text("Highest Spending Day: $highestDay"),
+              pw.SizedBox(height: 10),
+              pw.Divider(),
+              for (var day in dailyExpenses.keys)
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      "Day $day",
+                      style: pw.TextStyle(
+                        fontSize: 16,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    ...dailyExpenses[day]!.map(
+                      (e) => pw.Bullet(
+                        text:
+                            "${e.title} - ₹${e.amount.toStringAsFixed(2)} [${e.category.name.toUpperCase()}]",
+                      ),
+                    ),
+                    pw.SizedBox(height: 8),
+                  ],
+                ),
+            ],
       ),
-    ];
-    final csv = const ListToCsvConverter().convert(rows);
-    final dir = await getApplicationDocumentsDirectory();
-    final path = '${dir.path}/monthly_report.csv';
-    final file = File(path);
-    await file.writeAsString(csv);
-    await Share.shareXFiles([
-      XFile(file.path),
-    ], text: 'Your Monthly CSV Report');
+    );
+
+    await Printing.sharePdf(
+      bytes: await pdf.save(),
+      filename: 'Expense_Report_$monthYear.pdf',
+    );
   }
 
   void _showDayDetails(int day) {
@@ -356,8 +451,149 @@ class _AccountPageState extends State<AccountPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.download, color: Colors.white),
-            onPressed: _downloadReportCSV,
+            onPressed: () async {
+              if (_previousMonths.isEmpty) {
+                await showDialog(
+                  context: context,
+                  builder: (BuildContext context) {
+                    return AlertDialog(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                          12,
+                        ), // Rounded corners
+                      ),
+                      backgroundColor: const Color(0xFFF3E5F5), // Light purple
+                      title: const Text(
+                        "Notice",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF6A1B9A), // Deep purple
+                        ),
+                      ),
+                      content: const Text(
+                        "No previous months' data found.",
+                        style: TextStyle(color: Colors.black87),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            backgroundColor: Color(0xFFBA68C8), // Purple button
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text("OK"),
+                        ),
+                      ],
+                    );
+                  },
+                );
+                return;
+              }
+
+              if (_previousMonths.length == 1) {
+                final month = _previousMonths.first['month'];
+                await _downloadReportPDF(month);
+                return;
+              }
+
+              // Show month selection dialog
+              await showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return AlertDialog(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(
+                        12,
+                      ), // Rounded corners
+                    ),
+                    backgroundColor: const Color(0xFFF3E5F5), // Light purple
+                    title: const Text(
+                      "Select a Month",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF6A1B9A),
+                      ),
+                    ),
+                    content: SizedBox(
+                      width: double.maxFinite,
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: _previousMonths.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (_, i) {
+                          final month = _previousMonths[i]['month'];
+                          return Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () async {
+                                Navigator.pop(context);
+                                await _downloadReportPDF(month);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 14,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(
+                                    0xFFE1BEE7,
+                                  ), // Light purple tile
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.05),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      month,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.chevron_right,
+                                      color: Colors.black54,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: Color(0xFFAB47BC),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text("Cancel"),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
           ),
+
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
             onPressed: () async {
